@@ -177,7 +177,7 @@ verbosity = args.verbose
 util.debug = verbosity > 2
 
 f = open(HMAC_KEY_PATH, "r")
-hmac_key = binascii.unhexlify(f.read())
+hmac_key = binascii.unhexlify(f.read().strip())
 f.close()
 
 print("Points system started")
