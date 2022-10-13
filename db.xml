@@ -1,7 +1,6 @@
 <Points>
 	<DeltaPoint value="1"/>
 	<Tags>
-		<Tag UID="00000000" LastAccess="0" Salt="0" Nonce="0"/>
+		<Tag LastAccess="0" Nonce="0" Salt="0" UID="0"/>
 	</Tags>
 </Points>
-

@@ -21,26 +21,26 @@ util = rdr.util()
 running = True
 verbosity = 0
 
-def PrintDEBUG(self, msg):
+def PrintDEBUG(msg):
 	if verbosity > 2:
 		print("[DEBUG]: %s" % msg)
 
-def PrintINFO(self, msg):
+def PrintINFO(msg):
 	if verbosity > 1:
 		print("[INFO]: %s" % msg)
 
-def PrintERROR(self, msg):
+def PrintERROR(msg):
 	if verbosity > 0:
 		print("[ERROR]: %s" % msg)
 
 from xml.dom.minidom import parse
 import xml.dom.minidom
 
-def DeltaPointLookup(self):
+def DeltaPointLookup():
 	# TODO Lookup the points to add in database
 	return 1
 
-def UIDLookup(self, uid):
+def UIDLookup(uid):
 	# TODO Lookup UID in database
 	db = xml.dom.minidom.parse("db.xml")
 	root = db.documentElement
@@ -52,7 +52,7 @@ def UIDLookup(self, uid):
 
 	return (False, 0, 0, 0)
 
-def UIDUpdate(self, uid, last_access, nonce):
+def UIDUpdate(uid, last_access, nonce):
 	# TODO Update UID information in database
 	db = xml.dom.minidom.parse("db.xml")
 	root = db.documentElement
@@ -60,7 +60,7 @@ def UIDUpdate(self, uid, last_access, nonce):
 
 	for tag in db.documentElement.getElementsByTagName("Tags")[0].getElementsByTagName("Tag"):
 		if tag.getAttribute("UID").lower() == uid:
-			tag.setAttribute("LastAccess", str(last_access))
+			tag.setAttribute("LastAccess", str(int(time.mktime(last_access.timetuple()))))
 			tag.setAttribute("Nonce", str(nonce))
 
 	with open("db.xml", "w") as f:
@@ -68,28 +68,28 @@ def UIDUpdate(self, uid, last_access, nonce):
 
 def HmacVerify(points, nonce, hmac):
 	expected = HmacGenerate(points, nonce)
-	PrintDEBUG("Expected HMAC %s, got %s" % (expected, hmac))
+	PrintDEBUG("Got HMAC %s" % binascii.hexlify(hmac).decode())
 	return expected == hmac
 
 def HmacGenerate(points, nonce):
-	hmac = hmac.new(hmac_key, struct.pack("<IQ", points, nonce), hashlib.sha256)
-	PrintDEBUG("Generated HMAC %s for points %d and nonce %d" % (hmac, points, nonce))
-	return hmac
+	gen_hmac = hmac.new(hmac_key, struct.pack("<IQ", points, nonce), hashlib.sha256).digest()
+	PrintDEBUG("Generated HMAC %s for points %d and nonce %d" % (binascii.hexlify(gen_hmac).decode(), points, nonce))
+	return gen_hmac
 
-def ReadBlock(self, key, sect, block):
+def ReadBlock(key, sect, block):
 	util.auth(rdr.auth_a, key)
 	util.do_auth(util.block_addr(sect, block))
 
 	(err, data) = rdr.read(sect * 4 + block)
 	return (err, data)
 
-def WriteBlock(self, key, sect, block, data):
+def WriteBlock(key, sect, block, data):
 	util.auth(rdr.auth_a, key)
 	util.do_auth(util.block_addr(sect, block))
 
 	return rdr.write(sect * 4 + block, data)
 
-def ReadPointsStructure(self, section, key):
+def ReadPointsStructure(section, key):
 	points = None
 	nonce = None
 	hmac = None
@@ -115,7 +115,7 @@ def ReadPointsStructure(self, section, key):
 
 	return (False, HmacVerify(points, nonce, hmac), points, nonce)
 
-def WritePointsStrucutre(self, section, key, points, nonce):
+def WritePointsStructure(section, key, points, nonce):
 	# TODO Figure out what should be written as reserved bytes
 	rsrv = 0
 
@@ -141,29 +141,29 @@ def WritePointsStrucutre(self, section, key, points, nonce):
 
 	return False
 
-def ResetPointsStructure(self, section, key):
+def ResetPointsStructure(section, key):
 	return WritePointsStructure(section, key, 0, 0)
 
-def DerivePassword(self, uid, salt):
+def DerivePassword(uid, salt):
 	# TODO Convert UID of tag into its KeyA field
 	return [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
 
-def DisplayPoints(self, points, new_points):
+def DisplayPoints(points, new_points):
 	# TODO Show points on display
 	if points == new_points:
-		print("You have %d points" % points)
+		print("[DISPLAY] You have %d point(s)" % points)
 	else:
-		print("You received %d points!" % (new_points - points))
-		print("You now have %d points" % new_points)
+		print("[DISPLAY] You received %d point(s)!" % (new_points - points))
+		print("[DISPLAY] You now have %d point(s)" % new_points)
 
-def end_read(signal,frame):
+def StopPoints(signal, frame):
 	global running
 	print("\nStopping points system...")
 	running = False
 	rdr.cleanup()
 	sys.exit()
 
-signal.signal(signal.SIGINT, end_read)
+signal.signal(signal.SIGINT, StopPoints)
 
 parser = argparse.ArgumentParser(prog=sys.argv[0], description='Reads and writes points to a MIFARE Classic RFID tag using the RC522 RFID reader')
 parser.add_argument('-r', '--reset', type=bool, default=False,
@@ -222,15 +222,19 @@ while True:
 		continue
 
 	# Received valid points counter from tag
+	PrintDEBUG("Received valid points %d and nonce %d from tag" % (points, nonce))
 
 	new_points = points
 	current_date = datetime.now().date()
-	if current_date > datetime.fromtimestamp(last_access).date():
+	last_access_date = datetime.fromtimestamp(last_access).date()
+	PrintDEBUG("Last access time was %s, today's date is %s" % (last_access_date, current_date))
+	if current_date > last_access_date:
 		# The tag is eligible for new points
 		delta_points = DeltaPointLookup()
 		new_points += delta_points
 		nonce += 1
 
+		PrintINFO("Writing new points %d and nonce %d to tag" % (new_points, nonce))
 		WritePointsStructure(1, passwd, new_points, nonce)
 		UIDUpdate(uid, current_date, nonce)
 
