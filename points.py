@@ -89,6 +89,12 @@ def WriteBlock(key, sect, block, data):
 
 	return rdr.write(sect * 4 + block, data)
 
+def WriteKeyA(old_key, sect, new_key):
+	if len(new_key) != 6:
+		return True
+	util.auth(rdr.auth_a, old_key)
+	return util.rewrite(sect * 4 + 3, new_key + [None, None, None, None, None, None, None, None, None, None])
+
 def ReadPointsStructure(section, key):
 	points = None
 	nonce = None
@@ -146,6 +152,7 @@ def ResetPointsStructure(section, key):
 
 def DerivePassword(uid, salt):
 	# TODO Convert UID of tag into its KeyA field
+	# TODO Test that password overwrite works beforehand
 	return [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
 
 def DisplayPoints(points, new_points):
@@ -168,6 +175,8 @@ signal.signal(signal.SIGINT, StopPoints)
 parser = argparse.ArgumentParser(prog=sys.argv[0], description='Reads and writes points to a MIFARE Classic RFID tag using the RC522 RFID reader')
 parser.add_argument('-r', '--reset', type=bool, default=False,
                     help='Reset the points on the tag to 0 permanently if they are invalid.')
+parser.add_argument('-p', '--setpass', type=str,
+                    help='Start in password overwrite mode. The current password should be supplied as an argument, and it will be overwritten by the password derived from the UID')
 parser.add_argument('-v', '--verbose', action='count', default=0,
                     help='The verbosity of prints to be shown.')
 
@@ -181,6 +190,10 @@ hmac_key = binascii.unhexlify(f.read().strip())
 f.close()
 
 print("Points system started")
+if args.setpass is not None:
+	old_passwd = list(binascii.unhexlify(args.setpass))
+	print("WARNING: Running in set password mode!")
+	print("Tags with password %s (hex) will have their password OVERWRITTEN by the password derived by its UID!" % args.setpass)
 print("Press CTRL+C to stop")
 print("Waiting for tags...\n")
 
@@ -204,6 +217,16 @@ while True:
 	util.set_tag(uid)
 
 	passwd = DerivePassword(uid, salt)
+
+	if args.setpass is not None:
+		err = WriteKeyA(old_passwd, 1, passwd)
+		if err:
+			PrintERROR("Failed to write key A to section 1")
+		else:
+			PrintINFO("Key A of section 1 was updated")
+
+		time.sleep(2)
+		continue
 
 	(err, hmac_valid, points, nonce) = ReadPointsStructure(1, passwd)
 	if err:
