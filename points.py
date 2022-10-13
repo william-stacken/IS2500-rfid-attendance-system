@@ -68,12 +68,12 @@ def UIDUpdate(self, uid, last_access, nonce):
 
 def HmacVerify(points, nonce, hmac):
 	expected = HmacGenerate(points, nonce)
-	PrintDEBUG("Expected HMAC %s, got %s" % (expected, hmac)
+	PrintDEBUG("Expected HMAC %s, got %s" % (expected, hmac))
 	return expected == hmac
 
 def HmacGenerate(points, nonce):
 	hmac = hmac.new(hmac_key, struct.pack("<IQ", points, nonce), hashlib.sha256)
-	PrintDEBUG("Generated HMAC %s for points %d and nonce %d" % (hmac, points, nonce)
+	PrintDEBUG("Generated HMAC %s for points %d and nonce %d" % (hmac, points, nonce))
 	return hmac
 
 def ReadBlock(self, key, sect, block):
@@ -148,7 +148,7 @@ def DerivePassword(self, uid, salt):
 	# TODO Convert UID of tag into its KeyA field
 	return [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
 
-def DisplayPoints(self, points, new_points)
+def DisplayPoints(self, points, new_points):
 	# TODO Show points on display
 	if points == new_points:
 		print("You have %d points" % points)
