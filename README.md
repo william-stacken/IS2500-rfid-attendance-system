@@ -2,4 +2,4 @@
 Main implementation of the attendance system RFID reader for the IS2500 course
 
 ## Install dependencies
-`pip3 install pi-rc522`
+`pip3 install [pi-rc522](https://github.com/ondryaso/pi-rc522)`
