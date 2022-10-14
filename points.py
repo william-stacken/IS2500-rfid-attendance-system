@@ -12,8 +12,15 @@ import argparse
 from datetime import datetime
 from pirc522 import RFID
 
+# Sections where the points data structure should be redundantly stored
+REDUNDANT_SECTIONS = [1, 2, 3]
+
+# Where to retrieve the secret HMAC key fror authenticating the tag's points
 HMAC_KEY_PATH = "hmac.key"
 hmac_key = None
+
+# How many times to attempt writing to tag before giving up
+MAX_WRITE_ATTEMPTS = 5
 
 rdr = RFID()
 util = rdr.util()
@@ -89,60 +96,58 @@ def WriteBlock(key, sect, block, data):
 
 	return rdr.write(sect * 4 + block, data)
 
-def ReadPointsStructure(section, key):
-	points = None
-	nonce = None
-	hmac = None
+# Reads all redundant points strucutres and returns any strucutre that was valid
+# or returns an error if none was valid. If mutliple strucutres were valid, the
+# first valid one will be returned. This is because it is liklier to be up-to-date
+# as structures are written from first to last in WritePointsStructure()
+def ReadPointsStructure(sections, key):
+	for section in sections:
+		(err, data) = ReadBlock(key, section, 0)
+		if err:
+			PrintERROR("Failed to read section %d block 0" % section)
+			return (err, False, None, None)
 
-	(err, data) = ReadBlock(key, section, 0)
-	if err:
-		PrintERROR("Failed to read section %d block 0" % section)
-		return (err, False, points, nonce)
+		(points, nonce, rsrv) = struct.unpack("<IQI", bytes(data))
 
-	(points, nonce, rsrv) = struct.unpack("<IQI", bytes(data))
+		(err, data) = ReadBlock(key, section, 1)
+		if err:
+			PrintERROR("Failed to read section %d block 1" % section)
+			return (err, False, None, None)
+		hmac = bytes(data)
 
-	(err, data) = ReadBlock(key, section, 1)
-	if err:
-		PrintERROR("Failed to read section %d block 1" % section)
-		return (err, False, points, nonce)
-	hmac = bytes(data)
+		(err, data) = ReadBlock(key, section, 2)
+		if err:
+			PrintERROR("Failed to read section %d block 2" % section)
+			return (err, False, None, None)
+		hmac += bytes(data)
 
-	(err, data) = ReadBlock(key, section, 2)
-	if err:
-		PrintERROR("Failed to read section %d block 2" % section)
-		return (err, False, points, nonce)
-	hmac += bytes(data)
+		if not HmacVerify(points, nonce, hmac):
+			PrintINFO("Section %d did not contain a valid HMAC" % section)
+			continue
 
-	return (False, HmacVerify(points, nonce, hmac), points, nonce)
+		PrintDEBUG("Section %d contained valid points strucutre" % section)
+		return (False, True, points, nonce)
 
-def WritePointsStructure(section, key, points, nonce):
+	return (False, False, None, None)
+
+# Writes updated points structures to all redundant sections
+def WritePointsStructure(sections, key, points, nonce):
 	# TODO Figure out what should be written as reserved bytes
 	rsrv = 0
-
-	data = list(struct.pack("<IQI", points, nonce, rsrv))
 	hmac = HmacGenerate(points, nonce)
+	data = [list(struct.pack("<IQI", points, nonce, rsrv)), list(hmac[:16]), list(hmac[16:])]
 
-	err = WriteBlock(key, section, 0, data)
-	if err:
-		PrintERROR("Failed to write to section %d block 0" % section)
-		return err
-
-	data = list(hmac[:16])
-	err = WriteBlock(key, section, 1, data)
-	if err:
-		PrintERROR("Failed to write to section %d block 1" % section)
-		return err
-
-	data = list(hmac[16:])
-	err = WriteBlock(key, section, 2, data)
-	if err:
-		PrintERROR("Failed to write to section %d block 2" % section)
-		return err
+	for section in sections:
+		for block in range(3):
+			err = WriteBlock(key, section, block, data[block])
+			if err:
+				PrintERROR("Failed to write to section %d block %d" % (section, block))
+				return err
 
 	return False
 
-def ResetPointsStructure(section, key):
-	return WritePointsStructure(section, key, 0, 0)
+def ResetPointsStructure(sections, key):
+	return WritePointsStructure(sections, key, 0, 0)
 
 def DerivePassword(uid, salt):
 	# TODO Convert UID of tag into its KeyA field
@@ -166,7 +171,7 @@ def StopPoints(signal, frame):
 signal.signal(signal.SIGINT, StopPoints)
 
 parser = argparse.ArgumentParser(prog=sys.argv[0], description='Reads and writes points to a MIFARE Classic RFID tag using the RC522 RFID reader')
-parser.add_argument('-r', '--reset', type=bool, default=False,
+parser.add_argument('-r', '--reset', action='store_true',
                     help='Reset the points on the tag to 0 permanently if they are invalid.')
 parser.add_argument('-v', '--verbose', action='count', default=0,
                     help='The verbosity of prints to be shown.')
@@ -205,23 +210,25 @@ while True:
 
 	passwd = DerivePassword(uid, salt)
 
-	(err, hmac_valid, points, nonce) = ReadPointsStructure(1, passwd)
+	(err, hmac_valid, points, nonce) = ReadPointsStructure(REDUNDANT_SECTIONS, passwd)
 	if err:
 		PrintERROR("Reading points data structure failed")
 		continue
 
-	if nonce != nonce_expected:
-		PrintERROR("Received invalid nonce %d from tag, database contained %d" % (nonce, nonce_expected))
-		if args.reset:
-			ResetPointsStructure(1, passwd)
-		continue
 	if not hmac_valid:
 		PrintERROR("Received invalid HMAC from tag")
 		if args.reset:
-			ResetPointsStructure(1, passwd)
+			PrintINFO("Reseting the points structure...")
+			ResetPointsStructure(REDUNDANT_SECTIONS, passwd)
+		continue
+	if nonce != nonce_expected:
+		PrintERROR("Received invalid nonce %d from tag, database contained %d" % (nonce, nonce_expected))
+		if args.reset:
+			PrintINFO("Reseting the points structure...")
+			ResetPointsStructure(REDUNDANT_SECTIONS, passwd)
 		continue
 
-	# Received valid points counter from tag
+	# Received valid points structure from tag
 	PrintDEBUG("Received valid points %d and nonce %d from tag" % (points, nonce))
 
 	new_points = points
@@ -235,8 +242,15 @@ while True:
 		nonce += 1
 
 		PrintINFO("Writing new points %d and nonce %d to tag" % (new_points, nonce))
-		WritePointsStructure(1, passwd, new_points, nonce)
 		UIDUpdate(uid, current_date, nonce)
+		err = True
+		attempt = 0
+		while err and attempt < MAX_WRITE_ATTEMPTS:
+			err = WritePointsStructure(REDUNDANT_SECTIONS, passwd, new_points, nonce)
+			attempt += 1
+
+		if attempt >= MAX_WRITE_ATTEMPTS:
+			PrintERROR("Falied to write points! Data on the tag may be corrupted.")
 
 
 	DisplayPoints(points, new_points)
