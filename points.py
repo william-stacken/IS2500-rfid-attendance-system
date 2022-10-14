@@ -98,8 +98,10 @@ def WriteBlock(key, sect, block, data):
 
 def WriteKeyA(old_key, sect, new_key):
 	if len(new_key) != 6:
+		PrintERROR("Bad key length %d" % len(new_key))
 		return True
 	util.auth(rdr.auth_a, old_key)
+	util.do_auth(util.block_addr(sect, 3))
 	return util.rewrite(sect * 4 + 3, new_key + [None, None, None, None, None, None, None, None, None, None])
 
 # Reads all redundant points strucutres and returns any strucutre that was valid
