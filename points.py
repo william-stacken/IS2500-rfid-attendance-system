@@ -15,7 +15,7 @@ from pirc522 import RFID
 # Sections where the points data structure should be redundantly stored
 REDUNDANT_SECTIONS = [1, 2, 3]
 
-# Where to retrieve the secret HMAC key fror authenticating the tag's points
+# Where to retrieve the secret HMAC key for authenticating the tag's points
 HMAC_KEY_PATH = "hmac.key"
 hmac_key = None
 
@@ -156,9 +156,11 @@ def ResetPointsStructure(sections, key):
 	return WritePointsStructure(sections, key, 0, 0)
 
 def DerivePassword(uid, salt):
-	# TODO Convert UID of tag into its KeyA field
-	# TODO Test that password overwrite works beforehand
-	return [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+	PrintDEBUG("Creating new Key A as digest of %s" % uid + salt)
+	gen_hmac = hmac.new(hmac_key, uid + salt, hashlib.sha256).digest()
+	gen_hmac = list(gen_hmac)[-6:]
+	PrintDEBUG("Final Key A is %s" % gen_hmac)
+	return gen_hmac
 
 def DisplayPoints(points, new_points):
 	# TODO Show points on display
@@ -197,8 +199,8 @@ f.close()
 print("Points system started")
 if args.setpass is not None:
 	old_passwd = list(binascii.unhexlify(args.setpass))
-	print("WARNING: Running in set password mode!")
-	print("Tags with password %s (hex) will have their password OVERWRITTEN by the password derived by its UID!" % args.setpass)
+	print("\tWARNING: Running in set password mode!")
+	print("\tTags with password %s (hex) will have their password OVERWRITTEN by the password derived by its UID!" % args.setpass)
 print("Press CTRL+C to stop")
 print("Waiting for tags...\n")
 
@@ -217,11 +219,13 @@ while True:
 	(valid, last_access, salt, nonce_expected) = UIDLookup(uid)
 	if not valid:
 		PrintERROR("Tag with UID %s was not found in the database" % binascii.hexlify(bytes(uid)).decode())
+		time.sleep(0.5)
 		continue
 
 	util.set_tag(uid)
 
 	passwd = DerivePassword(uid, salt)
+	continue
 
 	if args.setpass is not None:
 		for section in REDUNDANT_SECTIONS:
