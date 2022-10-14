@@ -156,9 +156,12 @@ def ResetPointsStructure(sections, key):
 	return WritePointsStructure(sections, key, 0, 0)
 
 def DerivePassword(uid, salt):
-	PrintDEBUG("Creating new Key A as digest of %s" % uid + salt)
-	gen_hmac = hmac.new(hmac_key, uid + salt, hashlib.sha256).digest()
+	salted_uid = binascii.hexlify(bytes(uid)).decode().lower() + str(salt)
+	PrintDEBUG("Creating new Key A as digest of %s" % salted_uid)
+
+	gen_hmac = hmac.new(hmac_key, salted_uid, hashlib.sha256).digest()
 	gen_hmac = list(gen_hmac)[-6:]
+
 	PrintDEBUG("Final Key A is %s" % gen_hmac)
 	return gen_hmac
 
