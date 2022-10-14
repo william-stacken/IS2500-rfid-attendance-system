@@ -15,7 +15,7 @@ from pirc522 import RFID
 # Sections where the points data structure should be redundantly stored
 REDUNDANT_SECTIONS = [1, 2, 3]
 
-# Where to retrieve the secret HMAC key fror authenticating the tag's points
+# Where to retrieve the secret HMAC key for authenticating the tag's points
 HMAC_KEY_PATH = "hmac.key"
 hmac_key = None
 
@@ -96,6 +96,14 @@ def WriteBlock(key, sect, block, data):
 
 	return rdr.write(sect * 4 + block, data)
 
+def WriteKeyA(old_key, sect, new_key):
+	if len(new_key) != 6:
+		PrintERROR("Bad key length %d" % len(new_key))
+		return True
+	util.auth(rdr.auth_a, old_key)
+	util.do_auth(util.block_addr(sect, 3))
+	return util.rewrite(sect * 4 + 3, new_key + [None, None, None, None, None, None, None, None, None, None])
+
 # Reads all redundant points strucutres and returns any strucutre that was valid
 # or returns an error if none was valid. If mutliple strucutres were valid, the
 # first valid one will be returned. This is because it is liklier to be up-to-date
@@ -150,8 +158,14 @@ def ResetPointsStructure(sections, key):
 	return WritePointsStructure(sections, key, 0, 0)
 
 def DerivePassword(uid, salt):
-	# TODO Convert UID of tag into its KeyA field
-	return [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+	salted_uid = (binascii.hexlify(bytes(uid)).decode().lower() + str(salt)).encode()
+	PrintDEBUG("Creating new Key A as digest of %s" % salted_uid)
+
+	gen_hmac = hmac.new(hmac_key, salted_uid, hashlib.sha256).digest()
+	gen_hmac = list(gen_hmac)[-6:]
+
+	PrintDEBUG("Final Key A is %s" % gen_hmac)
+	return gen_hmac
 
 def DisplayPoints(points, new_points):
 	# TODO Show points on display
@@ -173,6 +187,8 @@ signal.signal(signal.SIGINT, StopPoints)
 parser = argparse.ArgumentParser(prog=sys.argv[0], description='Reads and writes points to a MIFARE Classic RFID tag using the RC522 RFID reader')
 parser.add_argument('-r', '--reset', action='store_true',
                     help='Reset the points on the tag to 0 permanently if they are invalid.')
+parser.add_argument('-p', '--setpass', type=str,
+                    help='Start in password overwrite mode. The current password should be supplied as an argument, and it will be overwritten by the password derived from the UID')
 parser.add_argument('-v', '--verbose', action='count', default=0,
                     help='The verbosity of prints to be shown.')
 
@@ -186,6 +202,10 @@ hmac_key = binascii.unhexlify(f.read().strip())
 f.close()
 
 print("Points system started")
+if args.setpass is not None:
+	old_passwd = list(binascii.unhexlify(args.setpass))
+	print("\tWARNING: Running in set password mode!")
+	print("\tTags with password %s (hex) will have their password OVERWRITTEN by the password derived by its UID!" % args.setpass)
 print("Press CTRL+C to stop")
 print("Waiting for tags...\n")
 
@@ -204,11 +224,23 @@ while True:
 	(valid, last_access, salt, nonce_expected) = UIDLookup(uid)
 	if not valid:
 		PrintERROR("Tag with UID %s was not found in the database" % binascii.hexlify(bytes(uid)).decode())
+		time.sleep(0.5)
 		continue
 
 	util.set_tag(uid)
 
 	passwd = DerivePassword(uid, salt)
+
+	if args.setpass is not None:
+		for section in REDUNDANT_SECTIONS:
+			err = WriteKeyA(old_passwd, section, passwd)
+			if err:
+				PrintERROR("Failed to write key A to section %d" % section)
+			else:
+				PrintINFO("Key A of section %d was updated" % section)
+
+		time.sleep(2)
+		continue
 
 	(err, hmac_valid, points, nonce) = ReadPointsStructure(REDUNDANT_SECTIONS, passwd)
 	if err:
