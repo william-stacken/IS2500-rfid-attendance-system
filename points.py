@@ -171,7 +171,7 @@ def StopPoints(signal, frame):
 signal.signal(signal.SIGINT, StopPoints)
 
 parser = argparse.ArgumentParser(prog=sys.argv[0], description='Reads and writes points to a MIFARE Classic RFID tag using the RC522 RFID reader')
-parser.add_argument('-r', '--reset', type=bool, default=False,
+parser.add_argument('-r', '--reset', action='store_true',
                     help='Reset the points on the tag to 0 permanently if they are invalid.')
 parser.add_argument('-v', '--verbose', action='count', default=0,
                     help='The verbosity of prints to be shown.')
@@ -215,14 +215,14 @@ while True:
 		PrintERROR("Reading points data structure failed")
 		continue
 
-	if nonce != nonce_expected:
-		PrintERROR("Received invalid nonce %d from tag, database contained %d" % (nonce, nonce_expected))
+	if not hmac_valid:
+		PrintERROR("Received invalid HMAC from tag")
 		if args.reset:
 			PrintINFO("Reseting the points structure...")
 			ResetPointsStructure(REDUNDANT_SECTIONS, passwd)
 		continue
-	if not hmac_valid:
-		PrintERROR("Received invalid HMAC from tag")
+	if nonce != nonce_expected:
+		PrintERROR("Received invalid nonce %d from tag, database contained %d" % (nonce, nonce_expected))
 		if args.reset:
 			PrintINFO("Reseting the points structure...")
 			ResetPointsStructure(REDUNDANT_SECTIONS, passwd)
