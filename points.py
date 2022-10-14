@@ -158,7 +158,7 @@ def ResetPointsStructure(sections, key):
 	return WritePointsStructure(sections, key, 0, 0)
 
 def DerivePassword(uid, salt):
-	salted_uid = binascii.hexlify(bytes(uid)).decode().lower() + str(salt)
+	salted_uid = (binascii.hexlify(bytes(uid)).decode().lower() + str(salt)).encode()
 	PrintDEBUG("Creating new Key A as digest of %s" % salted_uid)
 
 	gen_hmac = hmac.new(hmac_key, salted_uid, hashlib.sha256).digest()
@@ -230,7 +230,6 @@ while True:
 	util.set_tag(uid)
 
 	passwd = DerivePassword(uid, salt)
-	continue
 
 	if args.setpass is not None:
 		for section in REDUNDANT_SECTIONS:
