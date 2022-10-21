@@ -155,7 +155,9 @@ def WritePointsStructure(sections, key, points, nonce):
 	return False
 
 def ResetPointsStructure(sections, key):
-	return WritePointsStructure(sections, key, 0, 0)
+	err = WritePointsStructure(sections, key, 0, 0)
+	if not err:
+		UIDUpdate(uid, datetime.now().date(), 0)
 
 def DerivePassword(uid, salt):
 	salted_uid = (binascii.hexlify(bytes(uid)).decode().lower() + str(salt)).encode()
@@ -209,6 +211,9 @@ if args.setpass is not None:
 print("Press CTRL+C to stop")
 print("Waiting for tags...\n")
 
+start_time = 0
+end_time = 0
+
 while True:
 	rdr.wait_for_tag()
 	(err, tag_type) = rdr.request()
@@ -221,6 +226,7 @@ while True:
 		PrintERROR("Anticollision algorithm failed")
 		continue
 
+	start_time = time.time()
 	(valid, last_access, salt, nonce_expected) = UIDLookup(uid)
 	if not valid:
 		PrintERROR("Tag with UID %s was not found in the database" % binascii.hexlify(bytes(uid)).decode())
@@ -274,7 +280,6 @@ while True:
 		nonce += 1
 
 		PrintINFO("Writing new points %d and nonce %d to tag" % (new_points, nonce))
-		UIDUpdate(uid, current_date, nonce)
 		err = True
 		attempt = 0
 		while err and attempt < MAX_WRITE_ATTEMPTS:
@@ -283,9 +288,13 @@ while True:
 
 		if attempt >= MAX_WRITE_ATTEMPTS:
 			PrintERROR("Falied to write points! Data on the tag may be corrupted.")
-
+			new_points = points
+		else:
+			UIDUpdate(uid, current_date, nonce)
 
 	DisplayPoints(points, new_points)
+	end_time = time.time()
+	#print("%f" % (end_time - start_time))
 
 	util.deauth()
 
