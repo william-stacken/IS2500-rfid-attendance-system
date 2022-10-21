@@ -45,7 +45,10 @@ import xml.dom.minidom
 
 def DeltaPointLookup():
 	# TODO Lookup the points to add in database
-	return 1
+	db = xml.dom.minidom.parse("db.xml")
+	root = db.documentElement
+
+	return int(db.documentElement.getElementsByTagName("DeltaPoint")[0].getAttribute("Value"))
 
 def UIDLookup(uid):
 	# TODO Lookup UID in database
